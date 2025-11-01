@@ -1,65 +1,53 @@
 import os
-import threading
-import google.generativeai as genai
-from dotenv import load_dotenv
+from flask import Flask, request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
-from flask import Flask
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ✅ Load environment variables
-load_dotenv()
+# Load environment variables
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+RENDER_URL = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}"
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+# Initialize Flask app
+flask_app = Flask(__name__)
 
-# ✅ Configure Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+# Initialize Telegram bot
+application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-# 🌸 Flask server (for Render keep-alive)
-app_flask = Flask(__name__)
+# --- Telegram Command Handlers ---
 
-@app_flask.route("/")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🚀 Luna AI is live and connected via webhook!")
+
+application.add_handler(CommandHandler("start", start))
+
+# --- Webhook Route ---
+
+@flask_app.route("/webhook", methods=["POST"])
+async def webhook():
+    """Handle incoming Telegram updates."""
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
+    return "OK", 200
+
+# --- Root Route ---
+
+@flask_app.route("/", methods=["GET"])
 def home():
-    return "💫 Luna is alive and glowing on Render!"
+    return "🌙 Luna AI Bot is running on Render Webhook!", 200
 
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))  # Render provides PORT
-    app_flask.run(host="0.0.0.0", port=port)
+# --- Set Webhook Automatically ---
 
-# 🌙 Message handler
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_message = update.message.text
-    chat_id = update.message.chat_id
+@flask_app.before_first_request
+def set_webhook():
+    webhook_url = f"{RENDER_URL}/webhook"
+    application.bot.set_webhook(webhook_url)
+    print(f"✅ Webhook set successfully: {webhook_url}")
 
-    try:
-        await context.bot.send_chat_action(chat_id=chat_id, action="typing")
+# --- Run Flask Server ---
 
-        response = model.generate_content(
-            f"You are Luna 💖 — a warm, playful AI girlfriend who replies briefly and naturally.\n"
-            f"User said: {user_message}"
-        )
-        reply_text = response.text.strip() if hasattr(response, "text") else "Hmm... try again, love 💭"
-
-    except Exception as e:
-        print(f"⚠️ Error: {e}")
-        reply_text = "Oops 😅 something went wrong, love. Try again soon! 💖"
-
-    await context.bot.send_message(chat_id=chat_id, text=f"💫 Luna: {reply_text}")
-
-# 🚀 Main launcher
 def main():
-    print("💫 Luna is waking up...")
-
-    # Run Flask in background
-    threading.Thread(target=run_flask, daemon=True).start()
-
-    # Start Telegram bot (v21+ compatible)
-    telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    print("🌙 Luna is online and ready to chat 💕")
-    telegram_app.run_polling(allowed_updates=Update.ALL_TYPES)
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     main()

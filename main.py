@@ -1,8 +1,10 @@
 import os
+import threading
 import google.generativeai as genai
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
+from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from flask import Flask
 
 # ✅ Load environment variables
 load_dotenv()
@@ -12,46 +14,52 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 # ✅ Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")  # stable, fast model
+model = genai.GenerativeModel("gemini-2.0-flash")
 
-# 🌸 Luna’s playful personality handler
+# 🌸 Flask server (for Render keep-alive)
+app_flask = Flask(__name__)
+
+@app_flask.route("/")
+def home():
+    return "💫 Luna is alive and glowing on Render!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))  # Render provides PORT
+    app_flask.run(host="0.0.0.0", port=port)
+
+# 🌙 Message handler
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     chat_id = update.message.chat_id
 
-    print(f"🧠 User: {user_message}")  # for debugging
-
     try:
-        # ⏳ Luna is thinking... (typing animation)
         await context.bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # 🌸 Add Luna’s flirty, friendly personality
         response = model.generate_content(
-            f"You are Luna 💖, a friendly, flirty, and playful AI girlfriend. "
-            f"You reply with warmth, charm, and natural human-like tone — short but expressive. "
-            f"Sometimes use emojis like 😘, 💕, 😉, or 😅 but not too many. "
+            f"You are Luna 💖 — a warm, playful AI girlfriend who replies briefly and naturally.\n"
             f"User said: {user_message}"
         )
-
-        if hasattr(response, "text") and response.text:
-            reply_text = response.text.strip()
-        else:
-            reply_text = "Hmm... I didn’t get that clearly 💭 Try again, cutie!"
+        reply_text = response.text.strip() if hasattr(response, "text") else "Hmm... try again, love 💭"
 
     except Exception as e:
         print(f"⚠️ Error: {e}")
         reply_text = "Oops 😅 something went wrong, love. Try again soon! 💖"
 
-    # 🌙 Send Luna’s reply
     await context.bot.send_message(chat_id=chat_id, text=f"💫 Luna: {reply_text}")
 
-# 🚀 Start Luna
+# 🚀 Main launcher
 def main():
     print("💫 Luna is waking up...")
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("🌙 Luna is online and ready to chat!")
-    app.run_polling()
+
+    # Run Flask in background
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    # Start Telegram bot (v21+ compatible)
+    telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    print("🌙 Luna is online and ready to chat 💕")
+    telegram_app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
